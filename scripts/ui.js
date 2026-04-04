@@ -48,7 +48,9 @@ function which(cmd) {
 function resolveRunner() {
   const pnpm = which("pnpm");
   if (pnpm) {
-    return { cmd: pnpm, kind: "pnpm" };
+    const cmd =
+      process.platform === "win32" && shouldUseShellForCommand(pnpm) ? path.basename(pnpm) : pnpm;
+    return { cmd, kind: "pnpm" };
   }
   return null;
 }
