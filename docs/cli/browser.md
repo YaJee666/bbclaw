@@ -33,6 +33,20 @@ openclaw browser --browser-profile openclaw open https://example.com
 openclaw browser --browser-profile openclaw snapshot
 ```
 
+## Quick troubleshooting
+
+If `start` fails with `not reachable after start`, troubleshoot CDP readiness first. If `start` and `tabs` succeed but `open` or `navigate` fails, the browser control plane is healthy and the failure is usually navigation SSRF policy.
+
+Minimal sequence:
+
+```bash
+openclaw browser --browser-profile openclaw start
+openclaw browser --browser-profile openclaw tabs
+openclaw browser --browser-profile openclaw open https://example.com
+```
+
+Detailed guidance: [Browser troubleshooting](/tools/browser#cdp-startup-failure-vs-navigation-ssrf-block)
+
 ## Lifecycle
 
 ```bash
@@ -41,6 +55,14 @@ openclaw browser start
 openclaw browser stop
 openclaw browser --browser-profile openclaw reset-profile
 ```
+
+Notes:
+
+- For `attachOnly` and remote CDP profiles, `openclaw browser stop` closes the
+  active control session and clears temporary emulation overrides even when
+  OpenClaw did not launch the browser process itself.
+- For local managed profiles, `openclaw browser stop` stops the spawned browser
+  process.
 
 ## If the command is missing
 
@@ -109,7 +131,16 @@ Screenshot:
 
 ```bash
 openclaw browser screenshot
+openclaw browser screenshot --full-page
+openclaw browser screenshot --ref e12
 ```
+
+Notes:
+
+- `--full-page` is for page captures only; it cannot be combined with `--ref`
+  or `--element`.
+- `existing-session` / `user` profiles support page screenshots and `--ref`
+  screenshots from snapshot output, but not CSS `--element` screenshots.
 
 Navigate/click/type (ref-based UI automation):
 
@@ -189,6 +220,23 @@ openclaw browser --browser-profile chrome-live tabs
 ```
 
 This path is host-only. For Docker, headless servers, Browserless, or other remote setups, use a CDP profile instead.
+
+Current existing-session limits:
+
+- snapshot-driven actions use refs, not CSS selectors
+- `click` is left-click only
+- `type` does not support `slowly=true`
+- `press` does not support `delayMs`
+- `hover`, `scrollintoview`, `drag`, `select`, `fill`, and `evaluate` reject
+  per-call timeout overrides
+- `select` supports one value only
+- `wait --load networkidle` is not supported
+- file uploads require `--ref` / `--input-ref`, do not support CSS
+  `--element`, and currently support one file at a time
+- dialog hooks do not support `--timeout`
+- screenshots support page captures and `--ref`, but not CSS `--element`
+- `responsebody`, download interception, PDF export, and batch actions still
+  require a managed browser or raw CDP profile
 
 ## Remote browser control (node host proxy)
 

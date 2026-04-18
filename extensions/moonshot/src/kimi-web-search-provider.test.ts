@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/provider-onboard";
 import { withEnv } from "openclaw/plugin-sdk/testing";
 import { describe, expect, it } from "vitest";
-import { __testing } from "./kimi-web-search-provider.js";
+import { __testing } from "../test-api.js";
 
 const kimiApiKeyEnv = ["KIMI_API", "KEY"].join("_");
 
@@ -34,9 +34,7 @@ describe("kimi web search provider", () => {
       models: { providers: { moonshot: { baseUrl: "https://proxy.example/v1" } } },
     } as unknown as OpenClawConfig;
 
-    expect(__testing.resolveKimiBaseUrl(undefined, proxyConfig)).toBe(
-      "https://api.moonshot.ai/v1",
-    );
+    expect(__testing.resolveKimiBaseUrl(undefined, proxyConfig)).toBe("https://api.moonshot.ai/v1");
   });
 
   it("keeps explicit kimi baseUrl over models.providers.moonshot.baseUrl", () => {

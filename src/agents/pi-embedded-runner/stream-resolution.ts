@@ -2,6 +2,7 @@ import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { streamSimple } from "@mariozechner/pi-ai";
 import { createAnthropicVertexStreamFnForModel } from "../anthropic-vertex-stream.js";
 import { createOpenAIWebSocketStreamFn } from "../openai-ws-stream.js";
+import { getModelProviderRequestTransport } from "../provider-request-config.js";
 import { createBoundaryAwareStreamFnForModel } from "../provider-transport-stream.js";
 import { stripSystemPromptCacheBoundary } from "../system-prompt-cache-boundary.js";
 import type { EmbeddedRunAttemptParams } from "./run/types.js";
@@ -48,6 +49,18 @@ export function describeEmbeddedAgentStreamStrategy(params: {
   return "session-custom";
 }
 
+export async function resolveEmbeddedAgentApiKey(params: {
+  provider: string;
+  resolvedApiKey?: string;
+  authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
+}): Promise<string | undefined> {
+  const resolvedApiKey = params.resolvedApiKey?.trim();
+  if (resolvedApiKey) {
+    return resolvedApiKey;
+  }
+  return params.authStorage ? await params.authStorage.getApiKey(params.provider) : undefined;
+}
+
 export function resolveEmbeddedAgentStreamFn(params: {
   currentStreamFn: StreamFn | undefined;
   providerStreamFn?: StreamFn;
@@ -56,6 +69,7 @@ export function resolveEmbeddedAgentStreamFn(params: {
   sessionId: string;
   signal?: AbortSignal;
   model: EmbeddedRunAttemptParams["model"];
+  resolvedApiKey?: string;
   authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
 }): StreamFn {
   if (params.providerStreamFn) {
@@ -70,10 +84,14 @@ export function resolveEmbeddedAgentStreamFn(params: {
     // Provider-owned transports bypass pi-coding-agent's default auth lookup,
     // so keep injecting the resolved runtime apiKey for streamSimple-compatible
     // transports that still read credentials from options.apiKey.
-    if (params.authStorage) {
-      const { authStorage, model } = params;
+    if (params.authStorage || params.resolvedApiKey) {
+      const { authStorage, model, resolvedApiKey } = params;
       return async (m, context, options) => {
-        const apiKey = await authStorage.getApiKey(model.provider);
+        const apiKey = await resolveEmbeddedAgentApiKey({
+          provider: model.provider,
+          resolvedApiKey,
+          authStorage,
+        });
         return inner(m, normalizeContext(context), {
           ...options,
           apiKey: apiKey ?? options?.apiKey,
@@ -88,6 +106,9 @@ export function resolveEmbeddedAgentStreamFn(params: {
     return params.wsApiKey
       ? createOpenAIWebSocketStreamFn(params.wsApiKey, params.sessionId, {
           signal: params.signal,
+          managerOptions: {
+            request: getModelProviderRequestTransport(params.model),
+          },
         })
       : currentStreamFn;
   }

@@ -3,8 +3,6 @@ import {
   type ProviderAuthContext,
   type ProviderAuthMethod,
   type ProviderAuthMethodNonInteractiveContext,
-  type ProviderReplayPolicy,
-  type ProviderReplayPolicyContext,
   type ProviderResolveDynamicModelContext,
   type ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/plugin-entry";
@@ -19,11 +17,13 @@ import {
   validateApiKeyInput,
 } from "openclaw/plugin-sdk/provider-auth-api-key";
 import {
-  buildOpenAICompatibleReplayPolicy,
   normalizeModelCompat,
+  OPENAI_COMPATIBLE_REPLAY_HOOKS,
 } from "openclaw/plugin-sdk/provider-model-shared";
-import { createZaiToolStreamWrapper } from "openclaw/plugin-sdk/provider-stream";
+import { TOOL_STREAM_DEFAULT_ON_HOOKS } from "openclaw/plugin-sdk/provider-stream-family";
+import { defaultToolStreamExtraParams } from "openclaw/plugin-sdk/provider-stream-shared";
 import { fetchZaiUsage, resolveLegacyPiAgentAccessToken } from "openclaw/plugin-sdk/provider-usage";
+import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import { detectZaiEndpoint, type ZaiEndpointId } from "./detect.js";
 import { zaiMediaUnderstandingProvider } from "./media-understanding-provider.js";
 import { buildZaiModelDefinition } from "./model-definitions.js";
@@ -33,15 +33,11 @@ const PROVIDER_ID = "zai";
 const GLM5_TEMPLATE_MODEL_ID = "glm-4.7";
 const PROFILE_ID = "zai:default";
 
-function buildZaiReplayPolicy(ctx: ProviderReplayPolicyContext): ProviderReplayPolicy | undefined {
-  return buildOpenAICompatibleReplayPolicy(ctx.modelApi);
-}
-
 function resolveGlm5ForwardCompatModel(
   ctx: ProviderResolveDynamicModelContext,
 ): ProviderRuntimeModel | undefined {
   const trimmedModelId = ctx.modelId.trim();
-  if (!trimmedModelId.toLowerCase().startsWith("glm-5")) {
+  if (!normalizeLowercaseStringOrEmpty(trimmedModelId).startsWith("glm-5")) {
     return undefined;
   }
 
@@ -281,21 +277,12 @@ export default definePluginEntry({
         }),
       ],
       resolveDynamicModel: (ctx) => resolveGlm5ForwardCompatModel(ctx),
-      buildReplayPolicy: (ctx) => buildZaiReplayPolicy(ctx),
-      prepareExtraParams: (ctx) => {
-        if (ctx.extraParams?.tool_stream !== undefined) {
-          return ctx.extraParams;
-        }
-        return {
-          ...ctx.extraParams,
-          tool_stream: true,
-        };
-      },
-      wrapStreamFn: (ctx) =>
-        createZaiToolStreamWrapper(ctx.streamFn, ctx.extraParams?.tool_stream !== false),
+      ...OPENAI_COMPATIBLE_REPLAY_HOOKS,
+      prepareExtraParams: (ctx) => defaultToolStreamExtraParams(ctx.extraParams),
+      ...TOOL_STREAM_DEFAULT_ON_HOOKS,
       isBinaryThinking: () => true,
       isModernModelRef: ({ modelId }) => {
-        const lower = modelId.trim().toLowerCase();
+        const lower = normalizeLowercaseStringOrEmpty(modelId);
         return (
           lower.startsWith("glm-5") ||
           lower.startsWith("glm-4.7") ||

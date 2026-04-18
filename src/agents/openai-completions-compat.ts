@@ -1,4 +1,6 @@
+import type { Model } from "@mariozechner/pi-ai";
 import type { ProviderEndpointClass, ProviderRequestCapabilities } from "./provider-attribution.js";
+import { resolveProviderRequestCapabilities } from "./provider-attribution.js";
 
 type OpenAICompletionsCompatDefaultsInput = {
   provider?: string;
@@ -18,6 +20,11 @@ export type OpenAICompletionsCompatDefaults = {
   supportsStrictMode: boolean;
 };
 
+export type DetectedOpenAICompletionsCompat = {
+  capabilities: ProviderRequestCapabilities;
+  defaults: OpenAICompletionsCompatDefaults;
+};
+
 function isDefaultRouteProvider(provider: string | undefined, ...ids: string[]) {
   return provider !== undefined && ids.includes(provider);
 }
@@ -26,6 +33,7 @@ export function resolveOpenAICompletionsCompatDefaults(
   input: OpenAICompletionsCompatDefaultsInput,
 ): OpenAICompletionsCompatDefaults {
   const {
+    provider,
     endpointClass,
     knownProviderFamily,
     supportsNativeStreamingUsageCompat = false,
@@ -57,7 +65,8 @@ export function resolveOpenAICompletionsCompatDefaults(
     endpointClass === "chutes-native" ||
     endpointClass === "mistral-public" ||
     knownProviderFamily === "mistral" ||
-    (isDefaultRoute && isDefaultRouteProvider(input.provider, "chutes"));
+    (isDefaultRoute && isDefaultRouteProvider(provider, "chutes"));
+  const isOllamaCompatProvider = provider === "ollama";
 
   return {
     supportsStore:
@@ -69,7 +78,8 @@ export function resolveOpenAICompletionsCompatDefaults(
       endpointClass !== "xai-native" &&
       !usesExplicitProxyLikeEndpoint,
     supportsUsageInStreaming:
-      !isNonStandard && (!usesConfiguredNonOpenAIEndpoint || supportsNativeStreamingUsageCompat),
+      isOllamaCompatProvider ||
+      (!isNonStandard && (!usesConfiguredNonOpenAIEndpoint || supportsNativeStreamingUsageCompat)),
     maxTokensField: usesMaxTokens ? "max_tokens" : "max_completion_tokens",
     thinkingFormat: isZai ? "zai" : isOpenRouterLike ? "openrouter" : "openai",
     supportsStrictMode: !isZai && !usesConfiguredNonOpenAIEndpoint,
@@ -88,4 +98,28 @@ export function resolveOpenAICompletionsCompatDefaultsFromCapabilities(
   },
 ): OpenAICompletionsCompatDefaults {
   return resolveOpenAICompletionsCompatDefaults(input);
+}
+
+export function detectOpenAICompletionsCompat(
+  model: Pick<Model<"openai-completions">, "provider" | "baseUrl" | "id" | "compat">,
+): DetectedOpenAICompletionsCompat {
+  const capabilities = resolveProviderRequestCapabilities({
+    provider: model.provider,
+    api: "openai-completions",
+    baseUrl: model.baseUrl,
+    capability: "llm",
+    transport: "stream",
+    modelId: model.id,
+    compat:
+      model.compat && typeof model.compat === "object"
+        ? (model.compat as { supportsStore?: boolean })
+        : undefined,
+  });
+  return {
+    capabilities,
+    defaults: resolveOpenAICompletionsCompatDefaultsFromCapabilities({
+      provider: model.provider,
+      ...capabilities,
+    }),
+  };
 }

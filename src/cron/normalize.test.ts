@@ -438,6 +438,17 @@ describe("normalizeCronJobCreate", () => {
     expect(payload.timeoutSeconds).toBe(0);
   });
 
+  it("preserves fractional timeoutSeconds for short agentTurn deadlines", () => {
+    const normalized = normalizeCronJobCreate({
+      name: "fractional timeout",
+      schedule: { kind: "every", everyMs: 60_000 },
+      payload: { kind: "agentTurn", message: "hello", timeoutSeconds: 0.03 },
+    }) as unknown as Record<string, unknown>;
+
+    const payload = normalized.payload as Record<string, unknown>;
+    expect(payload.timeoutSeconds).toBe(0.03);
+  });
+
   it("preserves empty toolsAllow lists for create jobs", () => {
     const normalized = normalizeCronJobCreate({
       name: "empty-tools",
@@ -592,6 +603,23 @@ describe("normalizeCronJobCreate", () => {
     }) as unknown as Record<string, unknown>;
 
     expect(normalized.sessionTarget).toBe("session:MySessionID");
+  });
+
+  it("rejects custom session ids with path separators", () => {
+    expect(() =>
+      normalizeCronJobCreate({
+        name: "bad-custom-session",
+        schedule: { kind: "cron", expr: "* * * * *" },
+        sessionTarget: "session:../../outside",
+        payload: { kind: "agentTurn", message: "hello" },
+      }),
+    ).toThrow("invalid cron sessionTarget session id");
+
+    expect(() =>
+      normalizeCronJobPatch({
+        sessionTarget: "session:..\\outside",
+      }),
+    ).toThrow("invalid cron sessionTarget session id");
   });
 });
 

@@ -11,6 +11,38 @@ import {
 } from "./anthropic-payload-policy.js";
 
 type AnthropicVertexEffort = NonNullable<AnthropicOptions["effort"]>;
+type AnthropicVertexAdaptiveEffort = AnthropicVertexEffort | "xhigh";
+
+function isClaudeOpus47Model(modelId: string): boolean {
+  return modelId.includes("opus-4-7") || modelId.includes("opus-4.7");
+}
+
+function isClaudeOpus46Model(modelId: string): boolean {
+  return modelId.includes("opus-4-6") || modelId.includes("opus-4.6");
+}
+
+function supportsAdaptiveThinking(modelId: string): boolean {
+  return (
+    isClaudeOpus47Model(modelId) ||
+    isClaudeOpus46Model(modelId) ||
+    modelId.includes("sonnet-4-6") ||
+    modelId.includes("sonnet-4.6")
+  );
+}
+
+function mapAnthropicAdaptiveEffort(
+  reasoning: string,
+  modelId: string,
+): AnthropicVertexAdaptiveEffort {
+  const effortMap: Record<string, AnthropicVertexAdaptiveEffort> = {
+    minimal: "low",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: isClaudeOpus47Model(modelId) ? "xhigh" : isClaudeOpus46Model(modelId) ? "max" : "high",
+  };
+  return effortMap[reasoning] ?? "high";
+}
 
 function resolveAnthropicVertexMaxTokens(params: {
   modelMaxTokens: number | undefined;
@@ -48,12 +80,20 @@ function createAnthropicVertexOnPayload(params: {
     enableCacheControl: true,
   });
 
-  return async (payload, model) => {
+  function applyPolicy(payload: unknown): unknown {
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
       applyAnthropicPayloadPolicyToParams(payload as Record<string, unknown>, policy);
     }
-    const nextPayload = await params.onPayload?.(payload, model);
-    return nextPayload ?? payload;
+    return payload;
+  }
+
+  return async (payload, model) => {
+    const shapedPayload = applyPolicy(payload);
+    const nextPayload = await params.onPayload?.(shapedPayload, model);
+    if (nextPayload === undefined || nextPayload === shapedPayload) {
+      return shapedPayload;
+    }
+    return applyPolicy(nextPayload);
   };
 }
 
@@ -102,22 +142,12 @@ export function createAnthropicVertexStreamFn(
     };
 
     if (options?.reasoning) {
-      const isAdaptive =
-        model.id.includes("opus-4-6") ||
-        model.id.includes("opus-4.6") ||
-        model.id.includes("sonnet-4-6") ||
-        model.id.includes("sonnet-4.6");
-
-      if (isAdaptive) {
+      if (supportsAdaptiveThinking(model.id)) {
         opts.thinkingEnabled = true;
-        const effortMap: Record<string, AnthropicVertexEffort> = {
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-          xhigh: model.id.includes("opus-4-6") || model.id.includes("opus-4.6") ? "max" : "high",
-        };
-        opts.effort = effortMap[options.reasoning] ?? "high";
+        opts.effort = mapAnthropicAdaptiveEffort(
+          options.reasoning,
+          model.id,
+        ) as AnthropicVertexEffort;
       } else {
         opts.thinkingEnabled = true;
         const budgets = options.thinkingBudgets;
