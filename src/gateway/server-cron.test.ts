@@ -61,7 +61,7 @@ vi.mock("../config/config.js", async () => {
   const actual = await vi.importActual<typeof import("../config/config.js")>("../config/config.js");
   return {
     ...actual,
-    loadConfig: () => loadConfigMock(),
+    getRuntimeConfig: () => loadConfigMock(),
   };
 });
 
@@ -135,6 +135,48 @@ describe("buildGatewayCronService", () => {
           sessionKey: "agent:main:discord:channel:ops",
         }),
       );
+    } finally {
+      state.cron.stop();
+    }
+  });
+
+  it("forwards heartbeat overrides through the cron wake adapter", () => {
+    const cfg = createCronConfig("server-cron-heartbeat-override");
+    loadConfigMock.mockReturnValue(cfg);
+
+    const state = buildGatewayCronService({
+      cfg,
+      deps: {} as CliDeps,
+      broadcast: () => {},
+    });
+    try {
+      const cronDeps = (
+        state.cron as unknown as {
+          state?: {
+            deps?: {
+              requestHeartbeatNow?: (opts?: {
+                agentId?: string;
+                sessionKey?: string | null;
+                reason?: string;
+                heartbeat?: { target?: string };
+              }) => void;
+            };
+          };
+        }
+      ).state?.deps;
+
+      cronDeps?.requestHeartbeatNow?.({
+        reason: "cron:test",
+        sessionKey: "discord:channel:ops",
+        heartbeat: { target: "last" },
+      });
+
+      expect(requestHeartbeatNowMock).toHaveBeenCalledWith({
+        reason: "cron:test",
+        agentId: "main",
+        sessionKey: "agent:main:discord:channel:ops",
+        heartbeat: { target: "last" },
+      });
     } finally {
       state.cron.stop();
     }
